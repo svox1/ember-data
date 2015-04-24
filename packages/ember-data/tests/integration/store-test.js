@@ -1,4 +1,4 @@
-var store, env;
+var store, env, container;
 
 var Person = DS.Model.extend({
   name: DS.attr('string'),
@@ -25,6 +25,11 @@ function initializeStore(adapter) {
 
   env.registry.register('model:car', Car);
   env.registry.register('model:person', Person);
+}
+
+
+function lookup(thing) {
+  return run(container, 'lookup', thing);
 }
 
 module("integration/store - destroy", {
@@ -196,6 +201,20 @@ function ajaxResponse(value) {
   };
 }
 
+function ajaxResponseFault(value) {
+  var passedUrl, passedVerb, passedHash;
+  env.adapter.ajax = function(url, verb, hash) {
+    passedUrl = url;
+    passedVerb = verb;
+    passedHash = hash;
+
+    var reason = new Error('failed with status: [204 no content]');
+
+    return Ember.RSVP.reject(reason);
+  };
+}
+
+
 test("Using store#fetch is deprecated", function() {
   ajaxResponse({
     cars: [
@@ -269,6 +288,121 @@ test("Using store#fetchById on existing record reloads it", function() {
   });
 });
 
+test("Using store#fetchById on first request on a non existing record after first call try next call and check response", function() {
+  expect(1);
+
+  var car, App;
+
+  /*
+  ajaxResponseFault({
+    cars: [{
+      id: 1,
+      make: 'BMCW',
+      model: 'Mini'
+    }]
+  });
+  */
+
+  run(function() {
+    $.mockjax({
+      type: 'GET',
+      url: '/cars/1',
+      status: '204',
+      dataType: 'json',
+      responseText: {
+        cars: []
+      }
+    });
+
+    App = Ember.Application.create({
+      ApplicationController: Ember.Controller.extend(),
+      Router: Ember.Router.map(function() {
+        this.route('index');
+        this.route('info');
+      }),
+      IndexRoute: Ember.Route.extend({
+        beforeModel: function(transition) {
+          return store.fetchById('car', 1).then(
+            function(data) {
+              ok(false, 'Should never called');
+            },
+            function(error) {
+              ok(true, 'Response rejected');
+              //var cars = store.all('car');
+              //ok(!cars.get('length'), 'There is a car in the store ');
+
+              run(function() {
+                var appController = lookup('controller:application');
+                appController.transitionToRoute('/info');
+              });
+
+              return false;
+            }
+          );
+        }
+
+        /*
+         model: function() {
+         return store.fetchById('author', 1);
+         }
+         */
+      }),
+      ApplicationAdapter: DS.ActiveModelAdapter
+    });
+
+    container = App.__container__;
+  });
+  /*
+   run(function() {
+   store.fetchById('car', 1).then(
+   function(car) {},
+   function(reason) {
+
+   });
+   });
+   */
+
+  run(function() {
+    var appController = lookup('controller:application');
+    appController.transitionToRoute('/index');
+
+
+    /*
+     ajaxResponse({
+     cars: [{
+     id: 1,
+     make: 'BMC',
+     model: 'Mini'
+     }]
+     });
+     */
+  });
+
+  /*
+   run(function() {
+   store.fetchById('car', 1).then(
+   function(car) {
+   var cars = store.all('car');
+   ok(cars.get('length'), 'There is no car in the store ');
+   },
+   function(reason) {
+
+   });
+   });
+   */
+
+  /*
+   ajaxResponse({
+   cars: [{
+   id: 1,
+   make: 'BMC',
+   model: 'Mini'
+   }]
+   });
+   */
+  equal(store.all('car').get('length'), 0);
+});
+
 module("integration/store - fetchAll", {
   setup: function() {
     initializeStore(DS.RESTAdapter.extend());
@@ -284,11 +418,11 @@ test("Using store#fetchAll with no records triggers a query", function() {
       make: 'BMC',
       model: 'Mini'
     },
-    {
-      id: 2,
-      make: 'BMCW',
-      model: 'Isetta'
-    }]
+      {
+        id: 2,
+        make: 'BMCW',
+        model: 'Isetta'
+      }]
   });
 
   var cars = store.all('car');
@@ -318,11 +452,11 @@ test("Using store#fetchAll with existing records performs a query, updating exis
       make: 'BMC',
       model: 'New Mini'
     },
-    {
-      id: 2,
-      make: 'BMCW',
-      model: 'Isetta'
-    }]
+      {
+        id: 2,
+        make: 'BMCW',
+        model: 'Isetta'
+      }]
   });
 
   var cars = store.all('car');
